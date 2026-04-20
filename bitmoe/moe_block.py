@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from .routing.router import TopKRouter
-from .experts.expert_layer import StandardExpert
+from .experts.expert_layer import BitExpert
 from .routing.loss import calculate_load_balancing_loss
 
 class SparseMoEBlock(nn.Module):
@@ -13,21 +13,24 @@ class SparseMoEBlock(nn.Module):
         
         self.router = TopKRouter(d_model, num_experts, top_k)
         self.experts = nn.ModuleList(
-            [StandardExpert(d_model, hidden_dim) for _ in range(num_experts)]
+            [BitExpert(d_model, hidden_dim) for _ in range(num_experts)]
         )
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor, temperature: float = 1.0):
         batch_size, seq_len, d_model = x.shape
         x_flat = x.view(-1, d_model) # Flatten for routing
         
-        # 1. Get routing logits
-        gate_logits = self.router(x_flat)
+        # 1. Get raw routing logits
+        raw_logits = self.router(x_flat)
+        
+        # 2. Apply Temperature Scaling for the "Soft-Start"
+        scaled_logits = raw_logits / temperature
         
         # 2. Calculate Load Balancing Loss
-        l_bal = calculate_load_balancing_loss(gate_logits, self.num_experts, self.top_k)
+        l_bal = calculate_load_balancing_loss(scaled_logits, self.num_experts, self.top_k)
         
         # 3. Extract Top-K weights and indices
-        routing_weights, selected_experts = torch.topk(gate_logits, self.top_k, dim=-1)
+        routing_weights, selected_experts = torch.topk(scaled_logits, self.top_k, dim=-1)
         routing_weights = F.softmax(routing_weights, dim=-1)
         
         # 4. Standard PyTorch Dispatch (Memory Heavy, Slow)
