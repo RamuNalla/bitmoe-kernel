@@ -1,0 +1,5 @@
+# PyTorch: install a CUDA build from https://pytorch.org for GPU + Triton benchmarks.
+torch>=2.1.0
+
+# Triton (GPU kernels). Requires a supported NVIDIA GPU + CUDA stack; not available on all platforms.
+triton>=2.1.0
